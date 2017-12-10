@@ -118,7 +118,7 @@ int main() {
 
         sleep(2);
 
-        status = semop(semId, &semBusy, 1);     // try to flip the semaphore to make sure the memory not in use
+        status = semop(semId, &semBusy, 1);     // try to flip the semaphore to make sure the memory is not in use
         if (status == -1) {
             printf("Failed to unlock the critical section.\n");
             exit(EXIT_FAILURE);
