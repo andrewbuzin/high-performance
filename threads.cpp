@@ -65,5 +65,4 @@ int main(int argc, char* argv[]) {
     sleep(2);
     printf("All done.\n");
     return (EXIT_SUCCESS);
-
 }
