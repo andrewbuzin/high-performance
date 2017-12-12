@@ -7,7 +7,7 @@
 
 using namespace std;
 
-void* factorial(void *_n) {     // fucntion that is being passed to each new thread
+void* factorial(void *_n) {     // function that is being passed to each new thread
 
 	int n = * (int *)_n;
 	int f = 1;
@@ -17,7 +17,7 @@ void* factorial(void *_n) {     // fucntion that is being passed to each new thr
 
     printf("i'm thread %d, my factorial is %d\n", n, f);
 
-	pthread_exit(NULL);         // sending exit status back to the main thread
+    pthread_exit(NULL);         // sending exit status back to the main thread
 }
 
 int main(int argc, char* argv[]) {
@@ -44,7 +44,6 @@ int main(int argc, char* argv[]) {
 		/*
 		* Making a thread that runs factorial(), and passing a pointer to numbers[i] to it.
 		*/
-
 		int status = pthread_create(&tid[i], NULL, factorial, (void*)&numbers[i]);
 		if(status != 0) {
 			printf("Failed to start a thread at step %d.\n", i);
@@ -54,9 +53,6 @@ int main(int argc, char* argv[]) {
 		/*
 		* Waiting for the thread to finish and catching its exit status
 		*/
-
-		/*
-
 		status = pthread_join(tid[i], NULL);
 
 		if(status != 0)
@@ -64,9 +60,6 @@ int main(int argc, char* argv[]) {
 			printf("Join failed at step %d.\n", i);
 			exit(EXIT_FAILURE);
 		}
-
-		*/
-
 	}
 
     sleep(2);
