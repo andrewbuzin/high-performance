@@ -82,9 +82,11 @@ void calculate(double** T, int& rank, int& size) {
 	int _nx = Nx / (size - 1);
 	int _ny = Ny;							// segment of the grid assigned to the current process
 	
+	int _shift = _nx * (rank - 1);
+	/*
 	int _left = _nx * (rank - 1);
 	int _right = _nx * rank;
-	
+	*/
 	double** T0 = allocateArray(_nx, _ny);
 	double** T1 = allocateArray(_nx, _ny);
 	
@@ -97,6 +99,7 @@ void calculate(double** T, int& rank, int& size) {
 			lambda[i][j] = (i * hx >= 0.25 && i * hx <= 0.65) && (j * hy >= 0.1 && j * hy <=0.25) ? 10e-2 : 10e-4;
 		}
 	}
+	assembleResult(T1, _nx, _ny, rank, size);
 	
 	double leftBorder[_ny];					// grid borders
 	double rightBorder[_ny];
@@ -125,11 +128,11 @@ void calculate(double** T, int& rank, int& size) {
 				/* grid loop */
 				
 				if (j == 0) {
-					T1[i][j] = T[i][j];
+					T1[i][j] = T[i + _shift][j];
 					continue;
 				}
 				if (j == Ny - 1) {
-					T1[i][j] = T[i][j];
+					T1[i][j] = T[i + _shift][j];
 					continue;
 				}
 				
@@ -139,11 +142,21 @@ void calculate(double** T, int& rank, int& size) {
 				double F;
 				
 				if (i == 0) {
+					if (rank == 1) {
+						T1[i][j] = T[i][j];
+						continue;
+					}
+					
 					lambdaPlus = lambda[i][j];
 					lambdaMinus = lambda[i][j];
 					F = T0[i][j] / tau + ( lambdaPlus * (T0[i + 1][j] - T0[i][j]) 
 										- lambdaMinus * (T0[i][j] - leftGhost[j]) ) / (2 * pow(hx, 2));
 				} else if (i == _nx - 1) {
+					if (rank == size - 1) {
+						T1[i][j] = T[Nx - 1][j];
+						continue;
+					}
+					
 					lambdaPlus = lambda[i][j];
 					lambdaMinus = lambda[i][j];
 					F = T0[i][j] / tau + ( lambdaPlus * (rightGhost[j] - T0[i][j])
@@ -183,7 +196,7 @@ void writeToLog(double** T, int cycle) {
 	
 	for (int j = 0; j < Ny; j++) {
 		for (int i = 0; i < Nx; i++) {
-			fprintf(logFile, " %8.3f ", T[i][j]);
+			fprintf(logFile, " %9.3f ", T[i][j]);
 		}
 		fprintf(logFile, "\n");
 	}
@@ -212,7 +225,7 @@ int main(int argc, char* argv[]) {
         }
 		double** data = allocateArray(Nx / (size - 1), Ny);
 
-		for (int t = 1; t < Nt; t++) {
+		for (int t = 0; t < Nt; t++) {
 			for (int R = 1; R < size; R++) {
 				MPI_Recv(&(data[0][0]), (Nx / (size - 1)) * Ny, MPI_DOUBLE, R, 1, MPI_COMM_WORLD, &status);
 				
@@ -260,11 +273,10 @@ int main(int argc, char* argv[]) {
 			}
 		}
 		
-		writeToLog(T, 0);
-		
 		calculate(T, rank, size);
 	}
 	
 	MPI_Finalize();
+	fclose(logFile);
 	return 0;
 }
