@@ -2,17 +2,57 @@
 #include <cmath>
 #include <stdio.h>
 #include <stdlib.h> 
+#include <string>
 
 using namespace std;
 
 int Nx = 20;			
 int Ny = 10;			// grid
-int Nt = 10;
-double hx = 1.0 / Nx;
-double hy = 0.5 / Ny;	// step sizes
-double ht = 10 / Nt;
+int Nt = 25;
+double hx = 1.0 / (double) Nx;
+double hy = 0.5 / (double) Ny;	// step sizes
+double ht = 10.0 / (double) Nt;
 
 FILE* logFile;			// log file reference
+
+void writeToLog(double** T, int cycle) {
+	/* write the result of the current file to log */
+	
+	fprintf(logFile, "----- cycle %d -----\n", cycle);
+	fprintf(logFile, "t = %f\n", cycle * ht);
+	
+	for (int j = 0; j < Ny; j++) {
+		for (int i = 0; i < Nx; i++) {
+			fprintf(logFile, " %9.3f ", T[i][j]);
+		}
+		fprintf(logFile, "\n");
+	}
+	
+	fprintf(logFile, "\n\n");
+}
+
+void writeToSeparateFile(double** T, int cycle) {
+	/* write the result of the current file to log */
+	
+	FILE* file;
+	
+	char buff[20];
+	snprintf(buff, sizeof(buff), "cycle%d.txt", cycle);
+	string name = buff;
+	
+	file = fopen(name.c_str(), "w+");
+	
+	for (int j = 0; j < Ny; j++) {
+		for (int i = 0; i < Nx; i++) {
+			fprintf(file, " %9.3f ", T[i][j]);
+		}
+		fprintf(file, "\n");
+	}
+	
+	fprintf(file, "\n\n");
+	
+	fclose(file);
+}
 
 double** allocateArray(int rows, int cols) {
 	/* manually allocate a two-dimensional array that can be sent via MPI_Send */
@@ -75,133 +115,106 @@ void overrideArray(double** dest, double** source, int _nx, int _ny) {
 	}
 }
 
-void calculate(double** T, int& rank, int& size) {
+void calculate(int& rank, int& size) {
 	
-	/* initialization section	*/
+	//см. ПУНКТ 2
 	
 	int _nx = Nx / (size - 1);
 	int _ny = Ny;							// segment of the grid assigned to the current process
 	
 	int _shift = _nx * (rank - 1);
-	/*
-	int _left = _nx * (rank - 1);
-	int _right = _nx * rank;
-	*/
+	
 	double** T0 = allocateArray(_nx, _ny);
 	double** T1 = allocateArray(_nx, _ny);
-	
-	double lambda[_nx][_ny];
+	double lambda = 10e-4;
 	
 	for (int i = 0; i < _nx; i++) {
 		for (int j = 0; j < _ny; j++) {
-			T0[i][j] = 300;
-			T1[i][j] = 300;
-			lambda[i][j] = (i * hx >= 0.25 && i * hx <= 0.65) && (j * hy >= 0.1 && j * hy <=0.25) ? 10e-2 : 10e-4;
+			
+			if (i == 0 && rank == 1) {
+				T0[i][j] = (double) 600.0;
+				T1[i][j] = (double) 600.0;
+				continue;
+			}
+			if (i == _nx - 1 && rank == size - 1) {
+				T0[i][j] = (double) 1200.0;
+				T1[i][j] = (double) 1200.0;
+				continue;
+			}
+			
+			if (j == 0) {
+				T0[i][j] = (double)(600.0 * (1 + (i + _shift + 1) * hx));
+				T1[i][j] = (double)(600.0 * (1 + (i + _shift + 1) * hx));
+				continue;
+			}
+			if (j == Ny - 1) {
+				T0[i][j] = (double)(600.0 * (1 + pow((i + _shift + 1) * hx, 3)));
+				T1[i][j] = (double)(600.0 * (1 + pow((i + _shift + 1) * hx, 3)));
+				continue;
+			}
+			T0[i][j] = (double) 300.0;
+			T1[i][j] = (double) 300.0;
 		}
 	}
-	assembleResult(T1, _nx, _ny, rank, size);
 	
+	assembleResult(T1, _nx, _ny, rank, size);
+
 	double leftBorder[_ny];					// grid borders
 	double rightBorder[_ny];
 	
 	double leftGhost[_ny];					// neighboring grid borders
 	double rightGhost[_ny];
-	
-	/* calculation loop */
-	
-	double alpha;
-	double beta;
-	double prevAlpha;
-	double prevBeta;
-	
+	//см. ПУНКТ 3
 	for (int t = 1; t < Nt; t++) {
-		/* time loop */
-		
 		for (int j = 0; j < _ny; j++) {
 			leftBorder[j] = T0[0][j];
 			rightBorder[j] = T0[_nx - 1][j];
 		}
+		
 		exchangeBorders(leftBorder, rightBorder, leftGhost, rightGhost, rank, size);
 		
 		for (int i = 0; i < _nx; i++) {
 			for (int j = 0; j < _ny; j++) {
-				/* grid loop */
-				
+				if (i == 0 && rank == 1) {
+					T1[i][j] = T0[i][j];
+					continue;
+				}
+				if (i == _nx - 1 && rank == size - 1) {
+					T1[i][j] = T0[i][j];
+					continue;
+				}
 				if (j == 0) {
-					T1[i][j] = T[i + _shift][j];
+					T1[i][j] = T0[i][j];
 					continue;
 				}
-				if (j == Ny - 1) {
-					T1[i][j] = T[i + _shift][j];
+				if (j == _ny - 1) {
+					T1[i][j] = T0[i][j];
 					continue;
 				}
 				
-				double tau = t * ht;
-				double lambdaPlus;
-				double lambdaMinus;
-				double F;
+				double leftT0;
+				double rightT0;
 				
 				if (i == 0) {
-					if (rank == 1) {
-						T1[i][j] = T[i][j];
-						continue;
-					}
-					
-					lambdaPlus = lambda[i][j];
-					lambdaMinus = lambda[i][j];
-					F = T0[i][j] / tau + ( lambdaPlus * (T0[i + 1][j] - T0[i][j]) 
-										- lambdaMinus * (T0[i][j] - leftGhost[j]) ) / (2 * pow(hx, 2));
-				} else if (i == _nx - 1) {
-					if (rank == size - 1) {
-						T1[i][j] = T[Nx - 1][j];
-						continue;
-					}
-					
-					lambdaPlus = lambda[i][j];
-					lambdaMinus = lambda[i][j];
-					F = T0[i][j] / tau + ( lambdaPlus * (rightGhost[j] - T0[i][j])
-											- lambdaMinus * (T0[i][j] - T0[i - 1][j]) ) / (2 * pow(hx, 2));
+					leftT0 = leftGhost[j];
 				} else {
-					lambdaPlus = (lambda[i + 1][j] + lambda[i][j]) / 2;
-					lambdaMinus = (lambda[i - 1][j] + lambda[i][j]) / 2;
-					F = T0[i][j] / tau + ( lambdaPlus * (T0[i + 1][j] - T0[i][j]) 
-											- lambdaMinus * (T0[i][j] - T0[i - 1][j]) ) / (2 * pow(hx, 2));
+					leftT0 = T0[i - 1][j];
 				}
 				
-				double A = - ( lambdaMinus / (2 * pow(hy, 2)) );
-				double B = - ( lambdaPlus / (2 * pow(hy, 2)) );
-				double C = 1 / tau - A - B;
+				if (i == _nx - 1) {
+					rightT0 = rightGhost[j];
+				} else {
+					rightT0 = T0[i + 1][j];
+				}
 				
-				alpha = -B / (C + A * prevAlpha);
-				beta = (F - A * prevBeta) / (C + A * prevAlpha);
-				
-				T1[i][j] = alpha * T0[i][j] + beta;
+				T1[i][j] = T0[i][j] + lambda * ((double)ht / (double)pow(hx, 2.0)) * (leftT0 + T0[i][j - 1] + rightT0 + T0[i][j + 1] - 4.0 * T0[i][j]);
 			}
 		}
 		
 		assembleResult(T1, _nx, _ny, rank, size);
 		
 		overrideArray(T0, T1, _nx, _ny);
-
-		prevAlpha = alpha;
-		prevBeta = beta;
 	}
-}
-
-void writeToLog(double** T, int cycle) {
-	/* write the result of the current file to log */
-	
-	fprintf(logFile, "----- cycle %d -----\n", cycle);
-	fprintf(logFile, "t = %f\n", cycle * ht);
-	
-	for (int j = 0; j < Ny; j++) {
-		for (int i = 0; i < Nx; i++) {
-			fprintf(logFile, " %9.3f ", T[i][j]);
-		}
-		fprintf(logFile, "\n");
-	}
-	
-	fprintf(logFile, "\n\n");
 }
 
 int main(int argc, char* argv[]) {
@@ -218,6 +231,7 @@ int main(int argc, char* argv[]) {
 
 	MPI_Status status;
 	
+	// см. ПУНКТ 1
 	if (rank == 0) {
         double** T = new double*[Nx];
 	    for (int i = 0; i < Nx; i++) {
@@ -239,41 +253,11 @@ int main(int argc, char* argv[]) {
 			}
 			
 			writeToLog(T, t);
+			
+			if (t % 5 == 0) writeToSeparateFile(T, t);
 		}
 	} else {
-        double** T = new double*[Nx];
-	    for (int i = 0; i < Nx; i++) {
-            T[i] = new double[Nx];
-        }
-
-		for (int i = 0; i < Nx; i++) {
-			for (int j = 0; j < Ny; j++) {
-				
-				if (i == 0) {
-					T[i][j] = 600;
-					continue;
-				}
-				
-				if (i == Nx - 1) {
-					T[i][j] = 1200;
-					continue;
-				}
-				
-				if (j == 0) {
-					T[i][j] = 600 * (1 + i * hx);
-					continue;
-				}
-				
-				if (j == Ny - 1) {
-					T[i][j] = 600 * (1 + pow(i * hx, 3));
-					continue;
-				}
-				
-				T[i][j] = 0;
-			}
-		}
-		
-		calculate(T, rank, size);
+		calculate(rank, size);
 	}
 	
 	MPI_Finalize();
