@@ -23,9 +23,9 @@ double** allocateArray(int rows, int cols) {
 
 int main(int argc, char* argv[]) {
 	
-	double** A;
-	double b[SIZE] = { 2.0, 3.0, 4.0, 5.0 };
-	double c[SIZE];
+	float A[SIZE][SIZE];
+	float b[SIZE] = { 2.0, 3.0, 4.0, 5.0 };
+	float c[SIZE];
 	
 	MPI_Init(&argc, &argv);
 	
@@ -42,7 +42,6 @@ int main(int argc, char* argv[]) {
 	}
 	
 	if (mpiRank == ROOT) {
-		A = allocateArray(SIZE, SIZE);
 		for (int i = 0; i < SIZE; i++) {
 			for (int j = 0; j < SIZE; j++) {
 				A[i][j] = (i == j) ? 1.0 : 0.0;
@@ -50,42 +49,30 @@ int main(int argc, char* argv[]) {
 		}
 	}
 	
-	int rowsInSubmatrix = SIZE / mpiSize;
+	const int rowsInSubmatrix = SIZE / mpiSize;
+	const int anime = rowsInSubmatrix * SIZE;
 	
-	double resultBuffer[rowsInSubmatrix];
-	double** submatrix = allocateArray(rowsInSubmatrix, SIZE);
+	float resultBuffer[rowsInSubmatrix];
+	float submatrix[rowsInSubmatrix][SIZE];
 	
-	MPI_Scatter(&A[0][0], rowsInSubmatrix * SIZE, MPI_FLOAT, &submatrix[0][0], rowsInSubmatrix * SIZE, MPI_FLOAT, ROOT, MPI_COMM_WORLD);
-	
-	if (mpiRank == 0) {
-		for (int i = 0; i < rowsInSubmatrix; i++) {
-			for (int j = 0; j < SIZE; j++) {
-				printf("%f  ", submatrix[i][j]);
-			}
-			printf("\n");
-		}
-	}
-	
-	//printf("i'm rank %d and here's a number %7.1f\n", mpiRank, submatrix[0][0]);
+	MPI_Scatter(&A, anime, MPI_FLOAT, &submatrix, anime, MPI_FLOAT, ROOT, MPI_COMM_WORLD);
 	
 	for (int i = 0; i < rowsInSubmatrix; i++) {
-		double temp = 0.0;
+		float temp = 0.0;
 		for (int j = 0; j < SIZE; j++) {
-			
-			
-			//temp += b[j] + submatrix[i][j];
+			temp += b[j] * submatrix[i][j];
 		}
-		//resultBuffer[i] = temp;
+		resultBuffer[i] = temp;
 	}
 	
-	/*MPI_Gather(resultBuffer, rowsInSubmatrix, MPI_FLOAT, c, rowsInSubmatrix, MPI_FLOAT, ROOT, MPI_COMM_WORLD);
+	MPI_Gather(resultBuffer, rowsInSubmatrix, MPI_FLOAT, c, rowsInSubmatrix, MPI_FLOAT, ROOT, MPI_COMM_WORLD);
 	
 	if (mpiRank == ROOT) {
 		for (int i = 0; i < SIZE; i++) {
 			printf("%f\n", c[i]);
 		}
 	}
-	*/
+	
 	MPI_Finalize();
 	return 0;
 }
